@@ -6,32 +6,41 @@ import (
 	"github.com/cockroachdb/errors"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	"log"
 	"os"
 )
 
 var (
-	Logger    *zap.Logger
-	sugar     *zap.SugaredLogger
-	SentryCfg SentryConfiguration
+	Logger *zap.Logger
+	sugar  *zap.SugaredLogger
+	cfg    config
 )
 
-type SentryConfiguration struct {
-	Dsn string `env:"SENTRY_DSN"`
+type config struct {
+	Dsn         string `env:"SENTRY_DSN"`
+	Development bool   `env:"DEVELOPMENT" envDefault:"true"`
 }
 
 func init() {
-	writeSyncer := getLogWriter()
-	encoder := getEncoder()
-	core := zapcore.NewCore(encoder, writeSyncer, zapcore.InfoLevel)
-	Logger = zap.New(core, zap.AddCaller(), zap.AddCallerSkip(1), zap.AddStacktrace(zapcore.WarnLevel))
-
-	// sentry attach
-	if err := env.Parse(&SentryCfg); err != nil {
-		err := errors.Wrap(err, "parse sentry configuration error")
-		Fatal("", zap.Error(err))
+	// parse env
+	if err := env.Parse(&cfg); err != nil {
+		err := errors.Wrap(err, "env parse occur error")
+		log.Fatalf("%+v\n", err)
 	}
-	Logger = modifyToSentryLogger(Logger, SentryCfg.Dsn)
 
+	var err error
+	zapConfig := getConfig()
+	opts := []zap.Option{
+		zap.AddCaller(),
+		zap.AddCallerSkip(1),
+		zap.AddStacktrace(zapcore.WarnLevel),
+	}
+	Logger, err = zapConfig.Build(opts...)
+	if err != nil {
+		err = errors.Wrap(err, "zap init failure")
+		log.Fatalf("%+v\n", err)
+	}
+	Logger = modifyToSentryLogger(Logger, cfg.Dsn)
 	sugar = Logger.Sugar()
 }
 
@@ -48,11 +57,15 @@ func getLogWriter() zapcore.WriteSyncer {
 	return zapcore.AddSync(os.Stdout)
 }
 
-func getEncoder() zapcore.Encoder {
-	encoderConfig := zap.NewProductionEncoderConfig()
-	encoderConfig.EncodeTime = zapcore.TimeEncoderOfLayout("2006-01-02 15:04:05.9999")
-	encoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
-	return zapcore.NewConsoleEncoder(encoderConfig)
+func getConfig() zap.Config {
+	var config zap.Config
+	if cfg.Development {
+		config = zap.NewDevelopmentConfig()
+		config.EncoderConfig.EncodeTime = zapcore.TimeEncoderOfLayout("2006-01-02 15:04:05.9999")
+	} else {
+		config = zap.NewProductionConfig()
+	}
+	return config
 }
 
 func modifyToSentryLogger(logger *zap.Logger, dsn string) *zap.Logger {
