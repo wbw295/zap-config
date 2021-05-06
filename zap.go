@@ -14,6 +14,7 @@ var (
 	Logger *zap.Logger
 	sugar  *zap.SugaredLogger
 	cfg    config
+	sentryLevel zapcore.Level
 )
 
 type config struct {
@@ -62,8 +63,11 @@ func getConfig() zap.Config {
 	if cfg.Development {
 		config = zap.NewDevelopmentConfig()
 		config.EncoderConfig.EncodeTime = zapcore.TimeEncoderOfLayout("2006-01-02 15:04:05.9999")
+		config.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
+		sentryLevel = zapcore.WarnLevel
 	} else {
 		config = zap.NewProductionConfig()
+		sentryLevel = zapcore.ErrorLevel
 	}
 	return config
 }
